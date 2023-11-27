@@ -1,5 +1,5 @@
 BUILD_DIR:=/home/isucon/webapp/go
-BIN_NAME:=isupipe
+BIN_NAME:=isuports
 SVC_NAME_SUFFIX:=-go
 
 .PHONY: release
@@ -21,16 +21,8 @@ restart:
 
 .PHONY: bench
 bench:
-	sudo touch /var/log/nginx/access.log
-	sudo touch /tmp/mysql-slow.log
-	sudo rm /var/log/nginx/access.log
-	sudo rm /tmp/mysql-slow.log
-	sudo systemctl restart nginx.service
-	sudo systemctl restart mysql.service
-	cd ~/isuumo/bench; \
-	./bench -target-url http://127.0.0.1;
-	sudo lshw -class processor | grep product | head -3;
-	free -h
+	cd ~/bench; \
+	./bench -target-addr 127.0.0.1:443
 
 .PHONY: spec
 spec:
@@ -45,7 +37,7 @@ pprof:
 .PHONY: pt-query
 pt-query:
 	cd /tmp; \
-	sudo pt-query-digest --order-by Query_time:sum mysql-slow.log > ~/kataribe/pt-query-`date +%Y%m%d%H%M`.log
+	sudo pt-query-digest --order-by Query_time:sum mysql-slow.log > ~/pt-query-digest/pt-query-`date +%Y%m%d%H%M`.log
 
 .PHONY: journal
 journal:
@@ -65,10 +57,10 @@ restart_nginx:
 restart_mysql:
 	sudo systemctl restart mysql
 
-.PHONY: connect_mysql
-connect_mysql:
-	export MYSQL_PWD=isucon; \
-	mysql -h 127.0.0.1 -P 3306 -u isucon $(BIN_NAME)
+.PHONY: mysql
+mysql:
+	export MYSQL_PWD=root; \
+	mysql -h 127.0.0.1 -uroot -p $(BIN_NAME)
 
 .PHONY: install_netdata
 install_netdata:
@@ -107,8 +99,8 @@ git_config:
 	git config --global user.email serio@serio.com
 
 .PHONY: setup
-#setup: install_netdata install_pprof install_pt_query_digest install_kataribe git_config
-setup: install_kataribe git_config
+setup: install_netdata install_pprof install_pt_query_digest install_kataribe git_config
+# setup: install_kataribe git_config
 
 .PHONY: keygen
 keygen:
