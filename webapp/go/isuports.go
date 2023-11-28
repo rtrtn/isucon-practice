@@ -574,13 +574,6 @@ func billingReportByCompetition(ctx context.Context, tenantDB *sqlx.DB, tenantID
 		billingMap[vh.PlayerID] = "visitor"
 	}
 
-	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
-	// fl, err := flockByTenantID(tenantID)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error flockByTenantID: %w", err)
-	// }
-	// defer fl.Close()
-
 	tx, err := tenantDB.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error flockByTenantID: %w", err)
@@ -1248,15 +1241,16 @@ func playerHandler(c echo.Context) error {
 	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
-	fl, err := flockByTenantID(v.tenantID)
+	tx, err := tenantDB.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
-	defer fl.Close()
+	defer tx.Rollback()
+
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	for _, c := range cs {
 		ps := PlayerScoreRow{}
-		if err := tenantDB.GetContext(
+		if err := tx.GetContext(
 			ctx,
 			&ps,
 			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
