@@ -3,11 +3,15 @@ BIN_NAME:=isuports
 SVC_NAME_SUFFIX:=-go
 
 .PHONY: release
-release: app-cp build
+release: app-cp docker-down
 
 .PHONY: app-cp
 app-cp:
 	cp -fr ./webapp ~/
+
+docker-down:
+	cd /home/isucon/webapp; \
+	docker compose -f docker-compose-go.yml down
 
 .PHONY: build
 build:
