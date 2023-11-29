@@ -547,8 +547,41 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
+type BillingReportFromMysql struct {
+	TenantID          int64  `db:"tenant_id"`
+	CompetitionID     string `db:"competition_id"`
+	CompetitionTitle  string `db:"competition_title"`
+	PlayerCount       int64  `db:"player_count"`        // スコアを登録した参加者数
+	VisitorCount      int64  `db:"visitor_count"`       // ランキングを閲覧だけした(スコアを登録していない)参加者数
+	BillingPlayerYen  int64  `db:"billing_player_yen"`  // 請求金額 スコアを登録した参加者分
+	BillingVisitorYen int64  `db:"billing_visitor_yen"` // 請求金額 ランキングを閲覧だけした(スコアを登録していない)参加者分
+	BillingYen        int64  `db:"billing_yen"`         // 合計請求金額
+}
+
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB *sqlx.DB, tenantID int64, competitonID string) (*BillingReport, error) {
+	// 課金レポートが保存されていたらとってくる
+	billingReportFromMysql := BillingReportFromMysql{}
+	adminDB.GetContext(
+		ctx,
+		&billingReportFromMysql,
+		"SELECT * FROM billing_report WHERE tenant_id = ? AND competition_id = ?",
+		tenantID,
+		competitonID,
+	)
+
+	if billingReportFromMysql.TenantID != 0 {
+		return &BillingReport{
+			CompetitionID:     billingReportFromMysql.CompetitionID,
+			CompetitionTitle:  billingReportFromMysql.CompetitionTitle,
+			PlayerCount:       billingReportFromMysql.PlayerCount,
+			VisitorCount:      billingReportFromMysql.VisitorCount,
+			BillingPlayerYen:  billingReportFromMysql.BillingPlayerYen,
+			BillingVisitorYen: billingReportFromMysql.BillingVisitorYen,
+			BillingYen:        billingReportFromMysql.BillingYen,
+		}, nil
+	}
+
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
 	if err != nil {
 		return nil, fmt.Errorf("error retrieveCompetition: %w", err)
@@ -607,6 +640,14 @@ func billingReportByCompetition(ctx context.Context, tenantDB *sqlx.DB, tenantID
 			}
 		}
 	}
+
+	// 結果をmysqlに格納
+	adminDB.ExecContext(
+		ctx,
+		"INSERT INTO billing_report (tenant_id, competition_id, competition_title, player_count, visitor_count, billing_player_yen, billing_visitor_yen, billing_yen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		tenantID, comp.ID, comp.Title, playerCount, visitorCount, 100*playerCount, 10*visitorCount, 100*playerCount+10*visitorCount,
+	)
+
 	return &BillingReport{
 		CompetitionID:     comp.ID,
 		CompetitionTitle:  comp.Title,
