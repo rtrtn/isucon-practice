@@ -1099,50 +1099,61 @@ func competitionScoreHandler(c echo.Context) error {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
 	defer fl.Close()
-	var rowNum int64
-	playerScoreRows := []PlayerScoreRow{}
-	for {
-		rowNum++
-		row, err := r.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("error r.Read at rows: %w", err)
-		}
+
+	// csv読み込み
+	rows, err := r.ReadAll()
+	var playerIDs []string
+	var scoreStrs []int64
+	for _, row := range rows {
 		if len(row) != 2 {
 			return fmt.Errorf("row must have two columns: %#v", row)
 		}
-		playerID, scoreStr := row[0], row[1]
-		if _, err := retrievePlayer(ctx, tenantDB, playerID); err != nil {
-			// 存在しない参加者が含まれている
-			if errors.Is(err, sql.ErrNoRows) {
-				return echo.NewHTTPError(
-					http.StatusBadRequest,
-					fmt.Sprintf("player not found: %s", playerID),
-				)
-			}
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
+		playerIDs = append(playerIDs, row[0])
 		var score int64
-		if score, err = strconv.ParseInt(scoreStr, 10, 64); err != nil {
+		if score, err = strconv.ParseInt(row[1], 10, 64); err != nil {
 			return echo.NewHTTPError(
 				http.StatusBadRequest,
-				fmt.Sprintf("error strconv.ParseUint: scoreStr=%s, %s", scoreStr, err),
+				fmt.Sprintf("error strconv.ParseUint: scoreStr=%s, %s", row[1], err),
 			)
 		}
+		scoreStrs = append(scoreStrs, score)
+	}
+
+	// IN句作成
+	query, args, err := sqlx.In("SELECT COUNT(*) FROM player WHERE id IN (?)", playerIDs)
+	if err != nil {
+		return fmt.Errorf("error create IN query: %s, %w", query, err)
+	}
+
+	// sqlite用に変換
+	// query = tenantDB.Rebind(query)
+
+	var count int
+	if err := tenantDB.GetContext(ctx, &count, query, args...); err != nil {
+		return fmt.Errorf("error select player count: %s, args: %s, %w", query, args, err)
+	}
+	// 存在しない参加者が含まれている
+	if count != len(playerIDs) {
+		return echo.NewHTTPError(
+			http.StatusBadRequest,
+			fmt.Sprintf("player not found"),
+		)
+	}
+
+	now := time.Now().Unix()
+	playerScoreRows := []PlayerScoreRow{}
+	for i, playerID := range playerIDs {
 		id, err := dispenseID(ctx)
 		if err != nil {
 			return fmt.Errorf("error dispenseID: %w", err)
 		}
-		now := time.Now().Unix()
 		playerScoreRows = append(playerScoreRows, PlayerScoreRow{
 			ID:            id,
 			TenantID:      v.tenantID,
 			PlayerID:      playerID,
 			CompetitionID: competitionID,
-			Score:         score,
-			RowNum:        rowNum,
+			Score:         scoreStrs[i],
+			RowNum:        int64(i + 1),
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		})
